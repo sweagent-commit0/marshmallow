@@ -26,7 +26,11 @@ def _get_fields(attrs):
 
     :param attrs: Mapping of class attributes
     """
-    pass
+    return [
+        (field_name, field_obj)
+        for field_name, field_obj in attrs.items()
+        if isinstance(field_obj, ma_fields.Field)
+    ]
 
 def _get_fields_by_mro(klass):
     """Collect fields from a class, following its method resolution order. The
@@ -35,7 +39,13 @@ def _get_fields_by_mro(klass):
 
     :param type klass: Class whose fields to retrieve
     """
-    pass
+    fields = []
+    for base in klass.__mro__[1:]:  # skip the class itself
+        if hasattr(base, '_declared_fields'):
+            fields.extend(base._declared_fields.items())
+        else:
+            fields.extend(_get_fields(base.__dict__))
+    return fields
 
 class SchemaMeta(ABCMeta):
     """Metaclass for the Schema class. Binds the declared fields to
@@ -77,7 +87,12 @@ class SchemaMeta(ABCMeta):
         :param inherited_fields: Inherited fields.
         :param dict_cls: dict-like class to use for dict output Default to ``dict``.
         """
-        pass
+        declared_fields = dict_cls()
+        for field_name, field_obj in inherited_fields + cls_fields:
+            if field_name in declared_fields:
+                continue
+            declared_fields[field_name] = field_obj
+        return declared_fields
 
     def __init__(cls, name, bases, attrs):
         super().__init__(name, bases, attrs)
@@ -91,7 +106,13 @@ class SchemaMeta(ABCMeta):
         By doing this after constructing the class, we let standard inheritance
         do all the hard work.
         """
-        pass
+        hooks = defaultdict(list)
+        for attr_name in dir(cls):
+            attr = getattr(cls, attr_name)
+            if hasattr(attr, '__marshmallow_hook__'):
+                hook = getattr(attr, '__marshmallow_hook__')
+                hooks[hook.tag].append(attr_name)
+        return hooks
 
 class SchemaOpts:
     """class Meta options for the :class:`Schema`. Defines defaults."""
